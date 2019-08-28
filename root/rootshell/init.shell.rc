@@ -1,0 +1,8 @@
+on rootshell_trigger
+        setprop rootshell.status 1
+        start rootshell
+
+service rootshell /system/bin/sh /sbin/rootshell.sh
+    class core
+    user root
+    seclabel u:r:su:s0

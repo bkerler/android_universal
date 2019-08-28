@@ -1,0 +1,7 @@
+
+service adbwd_service /system/bin/sh /checkadb.sh --service
+    class late_start                                       
+    user root       
+    seclabel u:r:su:s0      
+    oneshot 
+

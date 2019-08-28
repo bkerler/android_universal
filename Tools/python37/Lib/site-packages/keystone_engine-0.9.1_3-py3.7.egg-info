@@ -1,0 +1,15 @@
+Metadata-Version: 1.1
+Name: keystone-engine
+Version: 0.9.1-3
+Summary: Keystone assembler engine
+Home-page: http://www.keystone-engine.org
+Author: Nguyen Anh Quynh
+Author-email: aquynh@gmail.com
+License: UNKNOWN
+Description: UNKNOWN
+Platform: UNKNOWN
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 3
+Requires: ctypes
+Provides: keystone
