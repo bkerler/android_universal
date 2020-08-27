@@ -1,2 +1,5 @@
 pycryptodome
 lz4
+pyasn1-modules
+pyasn1
+

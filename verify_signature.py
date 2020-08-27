@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Dump Android Verified Boot Signature (c) B.Kerler 2017-2018
+# Dump Android Verified Boot Signature (c) B.Kerler 2017-2019
 import hashlib
 import struct
 from binascii import hexlify,unhexlify
@@ -8,10 +8,14 @@ import argparse
 from Crypto.Util.asn1 import DerSequence
 from Crypto.PublicKey import RSA
 from root.scripts.Library.avbtool3 import *
-from root.scripts.Library.utils import *
-import json
+from pyasn1.type import char, namedtype, univ
+from pyasn1_modules import rfc2459
+from pyasn1.codec.der.decoder import decode as der_decoder
+from pyasn1.codec.der.encoder import encode as der_encoder
+from root.scripts.Library.utils import extract_key
+import shutil
 
-version="v1.7"
+version="v1.9"
 
 def extract_hash(pub_key,data):
     hashlen = 32 #SHA256
@@ -25,14 +29,67 @@ def extract_hash(pub_key,data):
         raise Exception('Signature error')
     return hash
 
+
+class AuthenticatedAttributes(univ.Sequence):
+    componentType = namedtype.NamedTypes(
+        namedtype.NamedType('target', char.PrintableString()),
+        namedtype.NamedType('length', univ.Integer())
+    )
+
+class BootSignature(univ.Sequence):
+    """
+    BootSignature ::= SEQUENCE {
+        formatVersion ::= INTEGER
+        certificate ::= Certificate
+        algorithmIdentifier ::= SEQUENCE {
+            algorithm OBJECT IDENTIFIER,
+            parameters ANY DEFINED BY algorithm OPTIONAL
+        }
+        authenticatedAttributes ::= SEQUENCE {
+            target CHARACTER STRING,
+            length INTEGER
+        }
+        signature ::= OCTET STRING
+    }
+    """
+
+    _FORMAT_VERSION = 1
+
+    componentType = namedtype.NamedTypes(
+        namedtype.NamedType('formatVersion', univ.Integer()),
+        namedtype.NamedType('certificate', rfc2459.Certificate()),
+        namedtype.NamedType('algorithmIdentifier',
+                            rfc2459.AlgorithmIdentifier()),
+        namedtype.NamedType('authenticatedAttributes',
+                            AuthenticatedAttributes()),
+        namedtype.NamedType('signature', univ.OctetString())
+    )
+
+    @classmethod
+    def create(cls, target, length):
+        boot_signature = cls()
+        boot_signature['formatVersion'] = cls._FORMAT_VERSION
+        boot_signature['authenticatedAttributes']['target'] = target
+        boot_signature['authenticatedAttributes']['length'] = length
+        return boot_signature
+
 def dump_signature(data):
     if data[0:2] == b'\x30\x82':
+        der_items=der_decoder(data,BootSignature())
+        publickey = der_items[0]["certificate"]["tbsCertificate"]["subjectPublicKeyInfo"]["subjectPublicKey"]
+        publickey = int(str(publickey), 2).to_bytes((len(str(publickey)) + 7) // 8, 'big')
+        signature = bytes(der_items[0]["signature"])
+        name=der_items[0]['authenticatedAttributes']["target"]
+        length = der_items[0]['authenticatedAttributes']["length"]
+
+        '''
         slen = struct.unpack('>H', data[2:4])[0]
         total = slen + 4
         cert = struct.unpack('<%ds' % total, data[0:total])[0]
 
         der = DerSequence()
         der.decode(cert)
+
         cert0 = DerSequence()
         cert0.decode(bytes(der[1]))
 
@@ -45,9 +102,12 @@ def dump_signature(data):
         length = meta[1]
 
         signature = bytes(der[4])[4:0x104]
-        pub_key = RSA.importKey(subjectPublicKeyInfo)
+        '''
+        pub_key = RSA.importKey(publickey)
         hash=extract_hash(pub_key,signature)
-        return [name,length,hash,pub_key,bytes(der[3])[1:2]]
+        authenticated_attributes = der_items[0]['authenticatedAttributes']
+        meta = der_encoder(authenticated_attributes)
+        return [name,length,hash,pub_key,meta]
 
 class androidboot:
     magic="ANDROID!" #BOOT_MAGIC_SIZE 8
@@ -103,8 +163,8 @@ def main(argv):
     print("\n"+info)
     print("----------------------------------------------")
     parser = argparse.ArgumentParser(description=info)
-    parser.add_argument('--file','-f', dest='filename', default="boot.img", action='store', help='boot or recovery image filename')
-    parser.add_argument('--vbmeta','-v', dest='vbmeta', action='store', default='vbmeta.img', help='vbmeta partition')
+    parser.add_argument('--file','-f', dest='filename', default="", action='store', help='boot or recovery image filename')
+    parser.add_argument('--vbmeta','-v', dest='vbmetaname', action='store', default='', help='vbmeta partition')
     parser.add_argument('--length', '-l', dest='inject', action='store_true', default=False, help='adapt signature length')
     args = parser.parse_args()
 
@@ -135,9 +195,6 @@ def main(argv):
             avbhdr=AvbVBMetaHeader(signature[:AvbVBMetaHeader.SIZE])
             release_string=avbhdr.release_string.replace(b"\x00",b"").decode('utf-8')
             print(f"\nAVB >=2.0 vbmeta detected: {release_string}\n----------------------------------------")
-            if not os.path.exists(args.vbmeta):
-                print("For avbv2, vbmeta.img is needed. Please use argument --vbmeta [vbmeta.img path].")
-                exit(0)
             if " 1.0" not in release_string and " 1.1" not in release_string:
                 print("Sorry, only avb version <=1.1 is currently implemented")
                 exit(0)
@@ -163,11 +220,11 @@ def main(argv):
             print("Image-Hash: \t\t\t\t" + img_avb_digest)
             avbmetacontent={}
             vbmeta=None
-            if args.vbmeta=="":
+            if args.vbmetaname=="":
                 if os.path.exists("vbmeta.img"):
                     args.vbmetaname="vbmeta.img"
-            if args.vbmeta!="":
-                with open(args.vbmeta,'rb') as vbm:
+            if args.vbmetaname!="":
+                with open(args.vbmetaname,'rb') as vbm:
                     vbmeta=vbm.read()
                     avbhdr=AvbVBMetaHeader(vbmeta[:AvbVBMetaHeader.SIZE])
                     if avbhdr.magic!=b'AVB0':
@@ -235,9 +292,14 @@ def main(argv):
                 modulus=hexlify(pubkeydata[8:8+modlen]).decode('utf-8')
                 print("\nSignature-RSA-Modulus (n):\t"+modulus)
                 print("Signature-n0inv: \t\t\t" + str(n0inv))
-                res=test_key(modulus)
-                if res!="":
-                    print("\n"+res+"\n!!!! We have a signing key, yay !!!!")
+                KEYPATH = "key"
+                if (os.path.exists(KEYPATH)):
+                    shutil.rmtree(KEYPATH)
+                os.mkdir(KEYPATH)
+                if os.path.exists("key"):
+                    keyname = extract_key(modulus, KEYPATH)
+                    if keyname:
+                        print(f"\nKey found: {keyname}")
             else:
                 print("VBMeta info missing... please copy vbmeta.img to the directory.")
             state=3
@@ -257,7 +319,7 @@ def main(argv):
             sha256 = hashlib.sha256()
             sha256.update(data)
             try:
-                target,siglength,hash,pub_key,flag=dump_signature(signature)
+                target,siglength,hash,pub_key,meta=dump_signature(signature)
             except:
                 print("No signature found :/")
                 exit(0)
@@ -266,7 +328,7 @@ def main(argv):
             print("Image-Target: "+str(target))
             print("Image-Size: "+hex(length))
             print("Signature-Size: "+hex(siglength))
-            meta=b"\x30"+flag+b"\x13"+bytes(struct.pack('B',len(target)))+target+b"\x02\x04"+bytes(struct.pack(">I",length))
+            #meta=b"\x30"+flag+b"\x13"+bytes(struct.pack('B',len(target)))+bytes(target)+b"\x02\x03"+bytes(struct.pack(">I",length)[1:4])
             #print(meta)
             sha256.update(meta)
             digest=sha256.digest()
@@ -278,12 +340,17 @@ def main(argv):
                 rotstate(3)
             modulus=int_to_bytes(pub_key.n)
             exponent=int_to_bytes(pub_key.e)
-            mod=str(hexlify(modulus).decode('utf-8'))
-            print("\nSignature-RSA-Modulus (n):\t"+mod)
+            smod=str(hexlify(modulus).decode('utf-8'))
+            print("\nSignature-RSA-Modulus (n):\t"+smod)
             print("Signature-RSA-Exponent (e):\t" + str(hexlify(exponent).decode('utf-8')))
-            res = test_key(modulus)
-            if res!="":
-                print("\n"+res+"\n!!!! We have a signing key, yay !!!!")
+            KEYPATH = "key"
+            if (os.path.exists(KEYPATH)):
+                shutil.rmtree(KEYPATH)
+            os.mkdir(KEYPATH)
+            if os.path.exists("key"):
+                keyname = extract_key(modulus, KEYPATH)
+                if keyname:
+                    print(f"\nKey found: {keyname}")
             sha256 = hashlib.sha256()
             sha256.update(modulus+exponent)
             pubkey_hash=sha256.digest()

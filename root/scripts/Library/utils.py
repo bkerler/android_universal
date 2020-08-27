@@ -154,41 +154,6 @@ def get_vbmeta_pubkey(vbmetaname,partition_name):
     modulus = hexlify(pubkeydata[8:8 + modlen]).decode('utf-8')
     return [modlen,n0inv,modulus]
 
-def test_key(modulus):
-    if modulus != "":
-        modulus=modulus[:16]
-        keydbname=os.path.join("root","keys","keys.json")
-        datadbname=os.path.join("root", "keys", "data.json")
-        if not os.path.exists(keydbname):
-            print("keys.json doesn't exist. Aborting.")
-            return None
-        if not os.path.exists(datadbname):
-            print("data.json doesn't exist. Aborting.")
-            return None
-
-        with open(keydbname,"r") as rf:
-            keydb=json.loads(rf.read())
-            content=""
-            for key in keydb:
-                if "modulus" in key:
-                    info = key["modulus"][:16]
-                elif "key" in key:
-                    info = key["key"][:16]
-                if info == modulus:
-                    if "data" in key:
-                        content = key["data"]
-                        break
-            if content!="":
-                with open(datadbname, "r") as rf:
-                    datadb = json.loads(rf.read())
-                    for data in datadb:
-                        if "id" in data:
-                            if modulus==data["id"][:16]:
-                                if "filename" in data:
-                                    url=data["filename"]
-                                    return ("Key found, "+url)
-    return None
-
 def extract_key(modulus,tmpdir):
     if modulus != "":
         modulus=modulus[:16]

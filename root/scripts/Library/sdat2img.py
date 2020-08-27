@@ -13,21 +13,21 @@ def main(TRANSFER_LIST_FILE, NEW_DATA_FILE, OUTPUT_IMAGE_FILE):
     __version__ = '1.1'
 
     if sys.hexversion < 0x02070000:
-        print >> sys.stderr, "Python 2.7 or newer is required."
+        print("Python 2.7 or newer is required.", file=sys.stderr)
         try:
             input = raw_input
         except NameError:
             pass
-        input('Press ENTER to exit...')
+        eval(input('Press ENTER to exit...'))
         sys.exit(1)
     else:
-        print('sdat2img binary - version: %s\n' % __version__)
+        print(('sdat2img binary - version: %s\n' % __version__))
 
     def rangeset(src):
         src_set = src.split(',')
         num_set = [int(item) for item in src_set]
         if len(num_set) != num_set[0] + 1:
-            print('Error on parsing following data to rangeset:\n%s' % src)
+            print(('Error on parsing following data to rangeset:\n%s' % src))
             sys.exit(1)
 
         return tuple([(num_set[i], num_set[i + 1]) for i in range(1, len(num_set), 2)])
@@ -57,7 +57,7 @@ def main(TRANSFER_LIST_FILE, NEW_DATA_FILE, OUTPUT_IMAGE_FILE):
             else:
                 # Skip lines starting with numbers, they are not commands anyway
                 if not cmd[0].isdigit():
-                    print('Command "%s" is not valid.' % cmd)
+                    print(('Command "%s" is not valid.' % cmd))
                     trans_list.close()
                     sys.exit(1)
 
@@ -84,7 +84,7 @@ def main(TRANSFER_LIST_FILE, NEW_DATA_FILE, OUTPUT_IMAGE_FILE):
         output_img = open(OUTPUT_IMAGE_FILE, 'wb')
     except IOError as e:
         if e.errno == errno.EEXIST:
-            print('Error: the output file "{}" already exists'.format(e.filename))
+            print(('Error: the output file "{}" already exists'.format(e.filename)))
             print('Remove it, rename it, or choose a different file name.')
             sys.exit(e.errno)
         else:
@@ -100,7 +100,7 @@ def main(TRANSFER_LIST_FILE, NEW_DATA_FILE, OUTPUT_IMAGE_FILE):
                 begin = block[0]
                 end = block[1]
                 block_count = end - begin
-                print('Copying {} blocks into position {}...'.format(block_count, begin))
+                print(('Copying {} blocks into position {}...'.format(block_count, begin)))
 
                 # Position output file
                 output_img.seek(begin * BLOCK_SIZE)
@@ -110,7 +110,7 @@ def main(TRANSFER_LIST_FILE, NEW_DATA_FILE, OUTPUT_IMAGE_FILE):
                     output_img.write(new_data_file.read(BLOCK_SIZE))
                     block_count -= 1
         else:
-            print('Skipping command %s...' % command[0])
+            print(('Skipping command %s...' % command[0]))
 
     # Make file larger if necessary
     if (output_img.tell() < max_file_size):
@@ -118,7 +118,7 @@ def main(TRANSFER_LIST_FILE, NEW_DATA_FILE, OUTPUT_IMAGE_FILE):
 
     output_img.close()
     new_data_file.close()
-    print('Done! Output image: %s' % os.path.realpath(output_img.name))
+    print(('Done! Output image: %s' % os.path.realpath(output_img.name)))
 
 
 if __name__ == '__main__':
@@ -135,7 +135,7 @@ if __name__ == '__main__':
             input = raw_input
         except NameError:
             pass
-        input('Press ENTER to exit...')
+        eval(input('Press ENTER to exit...'))
         sys.exit()
 
     try:

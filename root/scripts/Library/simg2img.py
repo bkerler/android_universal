@@ -87,7 +87,7 @@ class Simg2Img(object):
               fill_bin = FH.read(4)
               fill = struct.unpack("<I", fill_bin)
               curtype = format("Fill with 0x%08X" % (fill))
-              data = fill_bin * (blk_sz / 4);
+              data = fill_bin * (chunk_sz * blk_sz // 4)
               wf.write(data)
           elif chunk_type == 0xCAC3:
             wf.write(b'\x00' * chunk_sz * blk_sz)
@@ -109,7 +109,6 @@ class Simg2Img(object):
           print("The header said we should have %u output blocks, but we saw %u"
                 % (total_blks, offset))
 
-'''
 def main():
   me = posixpath.basename(sys.argv[0])
   if len(sys.argv)<3:
@@ -124,4 +123,3 @@ def main():
 
 if __name__ == "__main__":
   main()
-'''

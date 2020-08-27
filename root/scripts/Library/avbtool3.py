@@ -23,12 +23,11 @@
 # SOFTWARE.
 #
 """Command-line tool for working with Android Verified Boot images."""
-from binascii import hexlify,unhexlify
+
 import argparse
 import binascii
 import bisect
 import hashlib
-import random
 import math
 import os
 import struct
@@ -3088,8 +3087,7 @@ class Avb(object):
           # size as the hash size. Don't populate a random salt if this
           # descriptor is being created to use a persistent digest on device.
           hash_size = digest_size
-          #salt = open('/dev/urandom','rb').read(hash_size)
-          salt=unhexlify(hex(random.getrandbits(hash_size*8))[2:])
+          salt = open('/dev/urandom','rb').read(hash_size)
         else:
           salt = ''
 
@@ -3331,8 +3329,7 @@ class Avb(object):
           # size as the hash size. Don't populate a random salt if this
           # descriptor is being created to use a persistent digest on device.
           hash_size = digest_size
-          #salt = open('/dev/urandom').read(hash_size)
-          salt=unhexlify(hex(random.getrandbits(hash_size*8))[2:])
+          salt = open('/dev/urandom').read(hash_size)
         else:
           salt = b''
 
