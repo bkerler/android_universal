@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Dump Android Verified Boot Signature (c) B.Kerler 2017-2019
+# Dump Android Verified Boot Signature (c) B.Kerler 2017-2020
 import hashlib
 import struct
 from binascii import hexlify,unhexlify
@@ -12,7 +12,7 @@ from pyasn1.type import char, namedtype, univ
 from pyasn1_modules import rfc2459
 from pyasn1.codec.der.decoder import decode as der_decoder
 from pyasn1.codec.der.encoder import encode as der_encoder
-from root.scripts.Library.utils import extract_key
+from root.scripts.Library.utils import extract_key, get_next_modulus, rsa
 import shutil
 
 version="v1.9"
@@ -108,6 +108,8 @@ def dump_signature(data):
         authenticated_attributes = der_items[0]['authenticatedAttributes']
         meta = der_encoder(authenticated_attributes)
         return [name,length,hash,pub_key,meta]
+    else:
+        return [None,None,None,None,None]
 
 class androidboot:
     magic="ANDROID!" #BOOT_MAGIC_SIZE 8
@@ -140,7 +142,7 @@ def getheader(inputfile):
         param.second_addr = fields[6]
         param.tags_addr = fields[7]
         param.page_size = fields[8]
-        param.qcdt_size = fields[9]
+        param.qcdt_size_or_header_version = fields[9]
         param.os_version = fields[10]
         param.name = fields[11]
         param.cmdline = fields[12]
@@ -167,7 +169,7 @@ def main(argv):
     parser.add_argument('--vbmeta','-v', dest='vbmetaname', action='store', default='', help='vbmeta partition')
     parser.add_argument('--length', '-l', dest='inject', action='store_true', default=False, help='adapt signature length')
     args = parser.parse_args()
-
+    rs=rsa()
     if args.filename=="":
         print("Usage: verify_signature.py -f [boot.img]")
         exit(0)
@@ -175,12 +177,14 @@ def main(argv):
     kernelsize = int((param.kernel_size + param.page_size - 1) / param.page_size) * param.page_size
     ramdisksize = int((param.ramdisk_size + param.page_size - 1) / param.page_size) * param.page_size
     secondsize = int((param.second_size + param.page_size - 1) / param.page_size) * param.page_size
-    qcdtsize = int((param.qcdt_size + param.page_size - 1) / param.page_size) * param.page_size
+    qcdtsize = int((param.qcdt_size_or_header_version + param.page_size - 1) / param.page_size) * param.page_size
     
     print("Kernel=0x%08X,\tlength=0x%08X" % (param.page_size, kernelsize))
     print("Ramdisk=0x%08X,\tlength=0x%08X" % ((param.page_size+kernelsize),ramdisksize))
     print("Second=0x%08X,\tlength=0x%08X" % ((param.page_size+kernelsize+ramdisksize),secondsize))
     print("QCDT=0x%08X,\tlength=0x%08X" % ((param.page_size+kernelsize+ramdisksize+secondsize),qcdtsize))
+    if qcdtsize==2048:
+        qcdtsize=0 #MTK fix
     length=param.page_size+kernelsize+ramdisksize+secondsize+qcdtsize
     print("Signature start=0x%08X" % length)
 
@@ -318,11 +322,29 @@ def main(argv):
             data=data[:length]
             sha256 = hashlib.sha256()
             sha256.update(data)
+            found=False
             try:
                 target,siglength,hash,pub_key,meta=dump_signature(signature)
+                if hash!=None:
+                    found = 1
             except:
                 print("No signature found :/")
                 exit(0)
+            if hash==None:
+                siglength=len(signature)
+                meta=b""
+                for modulus in get_next_modulus():
+                    llen=len(modulus)//2
+                    modulus = int(modulus, 16)
+                    #encrypted = int(hexlify(signature), 16)
+                    exponent=0x10001
+                    digest=sha256.digest()
+                    isvalid = rs.pss_verify(exponent, modulus, digest, signature, llen*8)
+                    if isvalid==True:
+                        hash=digest
+                        found=2
+                        break
+
             id=hexlify(data[576:576+32])
             print("\nID: "+id.decode('utf-8'))
             print("Image-Target: "+str(target))
@@ -330,40 +352,46 @@ def main(argv):
             print("Signature-Size: "+hex(siglength))
             #meta=b"\x30"+flag+b"\x13"+bytes(struct.pack('B',len(target)))+bytes(target)+b"\x02\x03"+bytes(struct.pack(">I",length)[1:4])
             #print(meta)
-            sha256.update(meta)
-            digest=sha256.digest()
+            if found<2:
+                sha256.update(meta)
+                digest=sha256.digest()
             print("\nCalced Image-Hash:\t"+hexlify(digest).decode('utf8'))
-            print("Signature-Hash:\t\t" + hexlify(hash).decode('utf8'))
-            if str(hexlify(digest))==str(hexlify(hash)):
-                rotstate(0)
-            else:
-                rotstate(3)
-            modulus=int_to_bytes(pub_key.n)
-            exponent=int_to_bytes(pub_key.e)
-            smod=str(hexlify(modulus).decode('utf-8'))
-            print("\nSignature-RSA-Modulus (n):\t"+smod)
-            print("Signature-RSA-Exponent (e):\t" + str(hexlify(exponent).decode('utf-8')))
-            KEYPATH = "key"
-            if (os.path.exists(KEYPATH)):
-                shutil.rmtree(KEYPATH)
-            os.mkdir(KEYPATH)
-            if os.path.exists("key"):
-                keyname = extract_key(modulus, KEYPATH)
-                if keyname:
-                    print(f"\nKey found: {keyname}")
-            sha256 = hashlib.sha256()
-            sha256.update(modulus+exponent)
-            pubkey_hash=sha256.digest()
-            locked=pubkey_hash+struct.pack('<I',0x0)
-            unlocked = pubkey_hash + struct.pack('<I', 0x1)
-            sha256 = hashlib.sha256()
-            sha256.update(locked)
-            root_of_trust_locked=sha256.digest()
-            sha256 = hashlib.sha256()
-            sha256.update(unlocked)
-            root_of_trust_unlocked=sha256.digest()
-            print("\nTZ Root of trust (locked):\t\t" + str(hexlify(root_of_trust_locked).decode('utf-8')))
-            print("TZ Root of trust (unlocked):\t" + str(hexlify(root_of_trust_unlocked).decode('utf-8')))
+            if found>0:
+                print("Signature-Hash:\t\t" + hexlify(hash).decode('utf8'))
+                if str(hexlify(digest))==str(hexlify(hash)):
+                    rotstate(0)
+                else:
+                    rotstate(3)
+                if found==1:
+                    modulus=int_to_bytes(pub_key.n)
+                    exponent=int_to_bytes(pub_key.e)
+                else:
+                    modulus = int_to_bytes(modulus)
+                    exponent=int_to_bytes(exponent)
+                smod=str(hexlify(modulus).decode('utf-8'))
+                print("\nSignature-RSA-Modulus (n):\t"+smod)
+                print("Signature-RSA-Exponent (e):\t" + str(hexlify(exponent).decode('utf-8')))
+                KEYPATH = "key"
+                if (os.path.exists(KEYPATH)):
+                    shutil.rmtree(KEYPATH)
+                os.mkdir(KEYPATH)
+                if os.path.exists("key"):
+                    keyname = extract_key(hexlify(modulus).decode('utf-8'), KEYPATH)
+                    if keyname:
+                        print(f"\nKey found: {keyname}")
+                sha256 = hashlib.sha256()
+                sha256.update(modulus+exponent)
+                pubkey_hash=sha256.digest()
+                locked=pubkey_hash+struct.pack('<I',0x0)
+                unlocked = pubkey_hash + struct.pack('<I', 0x1)
+                sha256 = hashlib.sha256()
+                sha256.update(locked)
+                root_of_trust_locked=sha256.digest()
+                sha256 = hashlib.sha256()
+                sha256.update(unlocked)
+                root_of_trust_unlocked=sha256.digest()
+                print("\nTZ Root of trust (locked):\t\t" + str(hexlify(root_of_trust_locked).decode('utf-8')))
+                print("TZ Root of trust (unlocked):\t" + str(hexlify(root_of_trust_unlocked).decode('utf-8')))
 
     if (args.inject==True):
         pos = signature.find(target)

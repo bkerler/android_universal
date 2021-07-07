@@ -2,17 +2,18 @@
 (c) B. Kerler, MIT License
 
 Converts stock boot images and adds hidden root (accessible via netcat session), patches selinux and adds adb. 
-Tested with Android 4.x - 9.x.
+Tested with Android 4.x - 10.x.
 
 ## Options:
 ```
-  -filename FILENAME, -fn FILENAME
-                        boot.img or recovery.img
-  -stopboot             Device will halt on boot logo
-  -justunpack, -ju      Just extract kernel + ramdisk (files will be in tmp/)
-  -custom, -c           Stop in order to make changes (files will be in tmp/)
-  -precustom, -pc       Stop in order to make changes before patches (files will be in tmp/)
-  -forcesign, -fs [1|2] Enforce signing with google keys, 1=Avbv1, 2=Avbv2
+  -filename FILENAME, -fn FILENAME boot.img or recovery.img
+  -stopboot                Device will halt on boot logo
+  -justunpack, -ju         Just extract kernel + ramdisk (files will be in tmp/)
+  -custom, -c              Stop in order to make changes (files will be in tmp/)
+  -precustom, -pc          Stop in order to make changes before patches (files will be in tmp/)
+  -forcesign, -fs [1|2]    Enforce signing with google keys, 1=Avbv1, 2=Avbv2
+  -nopatch, -np            Do not patch anything
+  -not_unpack_ramdisk, -nu Do not extract ramdisk (use with -np)
 ```
 
 ## Installation:
@@ -44,4 +45,4 @@ For AVBv2 : vbmeta.img needs to be in the same directory. Output is boot.patched
 ```
 
 ## ToDo:
-Nothing, but maybe Android 10 needs more help :)
+Nothing, but maybe Android 11 needs more help :)

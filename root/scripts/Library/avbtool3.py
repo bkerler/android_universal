@@ -2761,6 +2761,8 @@ class Avb(object):
       for image in include_descriptors_from_image:
         #Patch here
         #image_handler = ImageHandler(image.name)
+        if not os.path.exists(image):
+            continue
         image_handler = ImageHandler(image)
         #Patch end
         (_, image_vbmeta_header, image_descriptors, _) = self._parse_image(

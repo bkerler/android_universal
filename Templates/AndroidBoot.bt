@@ -1,0 +1,83 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: AndroidBoot.bt 
+//   Authors: Bjoern Kerler
+//   Version: 1.0
+//   Purpose: Android boot image template
+//  Category: Operating System
+// File Mask: boot.img
+//  ID Bytes: 41 4E 44 52 4F 49 44 21
+//   History: 
+//   1.0   2019-05-09 Bjoern Kerler: Added QC_DTSize v1.1
+//------------------------------------------------
+
+#define BOOT_MAGIC "ANDROID!"
+#define BOOT_MAGIC_SIZE 8
+#define BOOT_NAME_SIZE 16
+#define BOOT_ARGS_SIZE 512
+#define BOOT_EXTRA_ARGS_SIZE 1024
+#define uint8_t unsigned char
+#define uint32_t unsigned int
+#define uint16_t unsigned short
+
+struct boot_img_hdr
+{
+    uint8_t magic[BOOT_MAGIC_SIZE]<bgcolor=cWhite>;
+    uint32_t kernel_size<format=hex,bgcolor=cRed>;  /* size in bytes */
+    uint32_t kernel_addr<format=hex,bgcolor=cRed>;  /* physical load addr */
+    uint32_t ramdisk_size<format=hex,bgcolor=cGreen>; /* size in bytes */
+    uint32_t ramdisk_addr<format=hex,bgcolor=cGreen>; /* physical load addr */
+    uint32_t second_size<format=hex,bgcolor=cBlue>;  /* size in bytes */
+    uint32_t second_addr<format=hex,bgcolor=cBlue>;  /* physical load addr */
+    uint32_t tags_addr<format=hex,bgcolor=cAqua>;    /* physical addr for kernel tags */
+    uint32_t page_size<format=hex,bgcolor=cPurple>;    /* flash page size we assume */
+    //https://source.codeaurora.org/external/gigabyte/kernel/lk/tree/app/aboot/bootimg.h?h=caf/LA.BF.1.1.3_rb1.15
+    uint32_t dt_size_or_header_version<format=hex,bgcolor=cYellow>;       /* Qualcomm DTB Blob size or Header version (starting with Android 9)*/
+    /* operating system version and security patch level; for
+     * version "A.B.C" and patch level "Y-M-D":
+     * ver = A << 14 | B << 7 | C         (7 bits for each of A, B, C)
+     * lvl = ((Y - 2000) & 127) << 4 | M  (7 bits for Y, 4 bits for M)
+     * os_version = ver << 11 | lvl */
+    uint32_t os_version<bgcolor=cSilver>;
+    uint8_t name[BOOT_NAME_SIZE]; /* asciiz product name */
+    uint8_t cmdline[BOOT_ARGS_SIZE]<bgcolor=cLtBlue>;
+    uint32_t id[8]<bgcolor=cDkPurple>; /* timestamp / checksum / sha1 / etc */
+    /* Supplemental command line data; kept here to maintain
+     * binary compatibility with older versions of mkbootimg */
+    uint8_t extra_cmdline[BOOT_EXTRA_ARGS_SIZE]<bgcolor=cLtPurple>;
+};
+
+struct bootimg{
+    boot_img_hdr hdr<optimize=false,bgcolor=cGray>;
+    local unsigned int n = (Image.hdr.kernel_size + Image.hdr.page_size - 1) / Image.hdr.page_size;
+    local unsigned int m = (Image.hdr.ramdisk_size + Image.hdr.page_size - 1) / Image.hdr.page_size;
+    local unsigned int o = (Image.hdr.second_size + Image.hdr.page_size - 1) / Image.hdr.page_size;
+    FSeek(0x800);
+    uint8_t kernel[n*Image.hdr.page_size]<optimize=false,bgcolor=cRed>;
+    uint8_t ramdisk[m*Image.hdr.page_size]<optimize=false,bgcolor=cGreen>;
+    uint8_t second[o*Image.hdr.page_size]<optimize=false,bgcolor=cBlue>;
+    local unsigned int64 leftbytes=FileSize()-0x800-n*Image.hdr.page_size-m*Image.hdr.page_size-o*Image.hdr.page_size;
+    uint8_t dt_or_tags[leftbytes]<optimize=false,bgcolor=cYellow>;
+};
+
+FSeek(0);
+LittleEndian();
+bootimg Image;
+
+local unsigned int n = (Image.hdr.kernel_size + Image.hdr.page_size - 1) / Image.hdr.page_size;
+local unsigned int m = (Image.hdr.ramdisk_size + Image.hdr.page_size - 1) / Image.hdr.page_size;
+local unsigned int o = (Image.hdr.second_size + Image.hdr.page_size - 1) / Image.hdr.page_size;
+Printf("Kernel=0x%08X, length=0x%08X\n",Image.hdr.page_size,n*Image.hdr.page_size);
+Printf("Ramdisk=0x%08X, length=0x%08X\n",Image.hdr.page_size+(n*Image.hdr.page_size),m*Image.hdr.page_size);
+Printf("Second=0x%08X, length=0x%08X\n",Image.hdr.page_size+(n*Image.hdr.page_size)+(m*Image.hdr.page_size),o*Image.hdr.page_size);
+Printf("Signature start=0x%08X\n",Image.hdr.page_size+(n*Image.hdr.page_size)+(m*Image.hdr.page_size)+(o*Image.hdr.page_size));
+
+local int length = Image.hdr.page_size // include the page aligned image header
+                + ((Image.hdr.kernel_size + Image.hdr.page_size - 1) / Image.hdr.page_size) * Image.hdr.page_size
+                + ((Image.hdr.ramdisk_size + Image.hdr.page_size - 1) / Image.hdr.page_size) * Image.hdr.page_size
+                + ((Image.hdr.second_size + Image.hdr.page_size - 1) / Image.hdr.page_size) * Image.hdr.page_size;
+
+length = ((length + Image.hdr.page_size - 1) / Image.hdr.page_size) * Image.hdr.page_size;
+Printf("Image length=0x%08X\n",length);
+

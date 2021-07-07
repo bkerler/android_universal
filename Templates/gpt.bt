@@ -1,0 +1,32 @@
+//------------------------------------------------
+//--- 010 Editor v9.0 Binary Template
+//
+//      File: 
+//   Authors: 
+//   Version: 
+//   Purpose: 
+//  Category: 
+// File Mask: 
+//  ID Bytes: 
+//   History: 
+//------------------------------------------------
+struct gpt_header
+{
+    unsigned char signature[8];
+    unsigned int revision;
+    unsigned int header_size;
+    unsigned int crc32;
+    unsigned int reserved;
+    unsigned int64 current_lba;
+    unsigned int64 backup_lba;
+    unsigned int64 first_usable_lba;
+    unsigned int64 last_usable_lba;
+    unsigned int64 disk_guid;
+    unsigned int64 part_entry_start_lba;
+    unsigned int num_part_entries;
+    unsigned int part_entry_size;
+    unsigned int crc32_part_array;
+};
+
+FSeek(512);
+gpt_header gpt;
