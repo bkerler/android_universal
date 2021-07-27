@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # Dump Android Verified Boot Signature (c) B.Kerler 2017-2020
 import hashlib
-import struct
 from binascii import hexlify,unhexlify
 import sys
 import argparse
@@ -14,8 +13,8 @@ from pyasn1.codec.der.decoder import decode as der_decoder
 from pyasn1.codec.der.encoder import encode as der_encoder
 from root.scripts.Library.utils import extract_key, get_next_modulus, rsa
 import shutil
-
-version="v1.9"
+from struct import unpack, pack
+version="v2.0"
 
 def extract_hash(pub_key,data):
     hashlen = 32 #SHA256
@@ -83,9 +82,9 @@ def dump_signature(data):
         length = der_items[0]['authenticatedAttributes']["length"]
 
         '''
-        slen = struct.unpack('>H', data[2:4])[0]
+        slen = unpack('>H', data[2:4])[0]
         total = slen + 4
-        cert = struct.unpack('<%ds' % total, data[0:total])[0]
+        cert = unpack('<%ds' % total, data[0:total])[0]
 
         der = DerSequence()
         der.decode(cert)
@@ -132,7 +131,7 @@ def getheader(inputfile):
     param = androidboot()
     with open(inputfile, 'rb') as rf:
         header = rf.read(0x660)
-        fields = struct.unpack('<8sIIIIIIIIII16s512s8I1024s', header)
+        fields = unpack('<8sIIIIIIIIII16s512s8I1024s', header)
         param.magic = fields[0]
         param.kernel_size = fields[1]
         param.kernel_addr = fields[2]
@@ -161,7 +160,7 @@ def rotstate(state):
 
 
 def main(argv):
-    info="Boot Signature Tool "+version+" (c) B.Kerler 2017-2019"
+    info="Boot Signature Tool "+version+" (c) B.Kerler 2017-2021"
     print("\n"+info)
     print("----------------------------------------------")
     parser = argparse.ArgumentParser(description=info)
@@ -202,7 +201,7 @@ def main(argv):
             if " 1.0" not in release_string and " 1.1" not in release_string:
                 print("Sorry, only avb version <=1.1 is currently implemented")
                 exit(0)
-            hashdata=signature[avbhdr.SIZE:]
+            hashdata=signature[avbhdr.SIZE+avbhdr.authentication_data_block_size:]
             imgavbhash=AvbHashDescriptor(hashdata)
             print("Image-Target: \t\t\t\t" + str(imgavbhash.partition_name.decode('utf-8')))
             # digest_size = len(hashlib.new(name=avbhash.hash_algorithm).digest())
@@ -215,7 +214,7 @@ def main(argv):
             ctx.update(imgavbhash.salt)
             ctx.update(data[:imgavbhash.image_size])
             root_digest=ctx.digest()
-            print("Salt: \t\t\t\t\t" + str(hexlify(imgavbhash.salt).decode('utf-8')))
+            print("Salt: \t\t\t\t\t\t" + str(hexlify(imgavbhash.salt).decode('utf-8')))
             print("Image-Size: \t\t\t\t" + hex(imgavbhash.image_size))
             img_digest=str(hexlify(root_digest).decode('utf-8'))
             img_avb_digest=str(hexlify(imgavbhash.digest).decode('utf-8'))
@@ -230,6 +229,17 @@ def main(argv):
             if args.vbmetaname!="":
                 with open(args.vbmetaname,'rb') as vbm:
                     vbmeta=vbm.read()
+                    if vbmeta[:4]==b"DHTB":
+                        print("!!!! Detected Spreadtrum special hash header !!!!")
+                        print("SHA256-Hash :\t\t\t\t"+hexlify(vbmeta[8:0x28]).decode('utf-8'))
+                        length=unpack("<I",vbmeta[0x30:0x34])[0]
+                        vbmeta=vbmeta[0x200:0x200+length]
+                        calcedhash=hashlib.sha256(vbmeta).digest()
+                        print("Calced Hash :\t\t\t\t"+hexlify(calcedhash).decode('utf-8'))
+                    else:
+                        idx=vbmeta.find(b"AVB0")
+                        if idx!=-1:
+                            vbmeta=vbmeta[idx:]
                     avbhdr=AvbVBMetaHeader(vbmeta[:AvbVBMetaHeader.SIZE])
                     if avbhdr.magic!=b'AVB0':
                         print("Unknown vbmeta data")
@@ -291,8 +301,8 @@ def main(argv):
                 pubkeydata=vbmeta[AvbVBMetaHeader.SIZE+avbhdr.authentication_data_block_size+avbhdr.public_key_offset:
                                   AvbVBMetaHeader.SIZE+avbhdr.authentication_data_block_size+avbhdr.public_key_offset
                                   +avbhdr.public_key_size]
-                modlen = struct.unpack(">I",pubkeydata[:4])[0]//4
-                n0inv = struct.unpack(">I", pubkeydata[4:8])[0]
+                modlen = unpack(">I",pubkeydata[:4])[0]//4
+                n0inv = unpack(">I", pubkeydata[4:8])[0]
                 modulus=hexlify(pubkeydata[8:8+modlen]).decode('utf-8')
                 print("\nSignature-RSA-Modulus (n):\t"+modulus)
                 print("Signature-n0inv: \t\t\t" + str(n0inv))
@@ -350,7 +360,7 @@ def main(argv):
             print("Image-Target: "+str(target))
             print("Image-Size: "+hex(length))
             print("Signature-Size: "+hex(siglength))
-            #meta=b"\x30"+flag+b"\x13"+bytes(struct.pack('B',len(target)))+bytes(target)+b"\x02\x03"+bytes(struct.pack(">I",length)[1:4])
+            #meta=b"\x30"+flag+b"\x13"+bytes(pack('B',len(target)))+bytes(target)+b"\x02\x03"+bytes(pack(">I",length)[1:4])
             #print(meta)
             if found<2:
                 sha256.update(meta)
@@ -382,8 +392,8 @@ def main(argv):
                 sha256 = hashlib.sha256()
                 sha256.update(modulus+exponent)
                 pubkey_hash=sha256.digest()
-                locked=pubkey_hash+struct.pack('<I',0x0)
-                unlocked = pubkey_hash + struct.pack('<I', 0x1)
+                locked=pubkey_hash+pack('<I',0x0)
+                unlocked = pubkey_hash + pack('<I', 0x1)
                 sha256 = hashlib.sha256()
                 sha256.update(locked)
                 root_of_trust_locked=sha256.digest()
@@ -396,12 +406,12 @@ def main(argv):
     if (args.inject==True):
         pos = signature.find(target)
         if (pos != -1):
-            lenpos = signature.find(struct.pack(">I",length)[0],pos)
+            lenpos = signature.find(pack(">I",length)[0],pos)
             if (lenpos!=-1):
                 with open(args.filename[0:-4]+"_signed.bin",'wb') as wf:
                     wf.write(data)
                     wf.write(signature[0:lenpos])
-                    wf.write(struct.pack(">I",length))
+                    wf.write(pack(">I",length))
                     wf.write(signature[lenpos+4:])
                     print("Successfully injected !")
 

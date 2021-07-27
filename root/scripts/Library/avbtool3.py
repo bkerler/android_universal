@@ -684,6 +684,7 @@ class ImageHandler(object):
   # |total_blocks| fields.
   NUM_CHUNKS_AND_BLOCKS_FORMAT = '<II'
   NUM_CHUNKS_AND_BLOCKS_OFFSET = 16
+  issprd = False
 
   def __init__(self, image_filename):
     """Initializes an image handler.
@@ -712,8 +713,14 @@ class ImageHandler(object):
     self._image = open(self.filename, 'r+b')
     self._image.seek(0, os.SEEK_END)
     self.image_size = self._image.tell()
-
     self._image.seek(0, os.SEEK_SET)
+    data=self._image.read(4)
+    if data==b"DHTB":
+        self._image.seek(0x200, os.SEEK_SET)
+        self.image_size-=0x200
+        self.issprd = True
+    else:
+        self._image.seek(0, os.SEEK_SET)
     header_bin = self._image.read(struct.calcsize(self.HEADER_FORMAT))
     (magic, major_version, minor_version, file_hdr_sz, chunk_hdr_sz,
      block_size, self._num_total_blocks, self._num_total_chunks,
@@ -2405,10 +2412,13 @@ class Avb(object):
     try:
       footer = AvbFooter(image.read(AvbFooter.SIZE))
     except (LookupError, struct.error):
-      # Nope, just seek back to the start.
-      image.seek(0)
+        # Nope, just seek back to the start.
+        image.seek(0)
 
-    vbmeta_offset = 0
+    if image.issprd:
+       vbmeta_offset = 0x200
+    else:
+        vbmeta_offset = 0
     if footer:
       vbmeta_offset = footer.vbmeta_offset
 
@@ -2628,7 +2638,7 @@ class Avb(object):
                             include_descriptors_from_image, signing_helper,
                             signing_helper_with_files,
                             release_string, append_to_release_string,
-                            required_libavb_version_minor):
+                            required_libavb_version_minor, issprd=False):
     """Generates a VBMeta blob.
 
     This blob contains the header (struct AvbVBMetaHeader), the
@@ -2817,7 +2827,7 @@ class Avb(object):
 
     # Append to release string, if requested. Also insert a space before.
     if isinstance(append_to_release_string, bytes):
-      h.release_string += ' ' + append_to_release_string
+      h.release_string += b' ' + append_to_release_string
 
     # For the Auxiliary data block, descriptors are stored at offset 0,
     # followed by the public key, followed by the public key metadata blob.
@@ -2879,8 +2889,16 @@ class Avb(object):
     auth_data_blob.extend(binary_signature)
     padding_bytes = h.authentication_data_block_size - len(auth_data_blob)
     auth_data_blob.extend(b'\0' * padding_bytes)
-
-    return header_data_blob.encode() + auth_data_blob + aux_data_blob
+    preheader = b""
+    if include_descriptors_from_image and issprd:
+        data=header_data_blob.encode() + auth_data_blob + aux_data_blob
+        while len(data)%4096!=0:
+            data += b"\x00"
+        hashval=hashlib.sha256(data).digest()
+        preheader = b"DHTB"+struct.pack("<I",1)+hashval+struct.pack("<III",0,0,len(data))
+        while len(preheader)<0x200:
+            preheader+=b"\x00"
+    return preheader + header_data_blob.encode() + auth_data_blob + aux_data_blob
 
   def extract_public_key(self, key_path, output):
     """Implements the 'extract_public_key' command.
@@ -2984,7 +3002,7 @@ class Avb(object):
                       release_string, append_to_release_string,
                       output_vbmeta_image, do_not_append_vbmeta_image,
                       print_required_libavb_version, use_persistent_digest,
-                      do_not_use_ab):
+                      do_not_use_ab, issprd=False):
     """Implementation of the add_hash_footer on unsparse images.
 
     Arguments:
@@ -3121,7 +3139,7 @@ class Avb(object):
           kernel_cmdlines, setup_rootfs_from_kernel, ht_desc_to_setup,
           None, signing_helper,
           signing_helper_with_files, release_string,
-          append_to_release_string, required_libavb_version_minor)
+          append_to_release_string, required_libavb_version_minor,issprd=False)
 
       # Write vbmeta blob, if requested.
       if output_vbmeta_image:
@@ -3133,7 +3151,7 @@ class Avb(object):
                 kernel_cmdlines, setup_rootfs_from_kernel, ht_desc_to_setup,
                 include_descriptors_from_image, signing_helper,
                 signing_helper_with_files, release_string,
-                append_to_release_string, required_libavb_version_minor)
+                append_to_release_string, required_libavb_version_minor, issprd=issprd)
             wf.write(vbmeta_blob2)
 
       # Append vbmeta blob and footer, unless requested not to.

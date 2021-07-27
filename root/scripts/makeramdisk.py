@@ -64,12 +64,13 @@ class androidhdr():
             if self.second_size > 0:
                 self.content["second"] = dict(foffset=pos, addr=self.second_addr, length=self.second_size)
                 pos += self.calcpadding(self.second_size)
-            img.seek(0x240+0x20)
-            self.cmdline+=img.read(1024)
-            self.cmdline=self.cmdline.rstrip(b"\x00")
-            self.recovery_dtbo_size=int.from_bytes(img.read(4),'little')
-            self.recovery_dtbo_offset=int.from_bytes(img.read(8),'little')
-            self.content["recovery_dtbo"] = dict(foffset=self.recovery_dtbo_offset, addr=0, length=self.recovery_dtbo_size)
+            img.seek(0x240 + 0x20)
+            self.cmdline += img.read(1024)
+            self.cmdline = self.cmdline.rstrip(b"\x00")
+            self.recovery_dtbo_size = int.from_bytes(img.read(4), 'little')
+            self.recovery_dtbo_offset = int.from_bytes(img.read(8), 'little')
+            self.content["recovery_dtbo"] = dict(foffset=self.recovery_dtbo_offset, addr=0,
+                                                 length=self.recovery_dtbo_size)
             pos += self.calcpadding(self.recovery_dtbo_size)
             if self.dt_size == 1:
                 self.hdrversion = 1
@@ -136,12 +137,13 @@ class androidhdr():
                                       self.dt_size, self.osversion))
             out.write(struct.pack('16s512sIIIIIIII', self.name, self.cmdline[:512], self.id0, self.id1, self.id2, \
                                   self.id3, self.id4, 0, 0, 0))
-            out.write(struct.pack('1024s',self.cmdline[512:]))
+            out.write(struct.pack('1024s', self.cmdline[512:]))
             if self.hdrversion > 0:
-                out.write(struct.pack('<IQ', self.recovery_dtbo_size,self.recovery_dtbo_offset))
+                out.write(struct.pack('<IQ', self.recovery_dtbo_size, self.recovery_dtbo_offset))
                 out.write(struct.pack('<I', self.hdrsize))
             if self.hdrversion > 1:
-                out.write(struct.pack('<II',self.dt_size,self.dt_addr))
+                out.write(struct.pack('<II', self.dt_size, self.dt_addr))
+
 
 class ramdiskmod():
     custom = False
@@ -565,9 +567,13 @@ class ramdiskmod():
             include_descriptors_from_image = [pp]
             output_vbmeta_image = pp
             avb = Avb()
+            issprd = False
+            with open(pp, "rb") as rf:
+                if rf.read(4) == b"DHTB":
+                    issprd = True
             avb.add_hash_footer(self.TARGET, partition_size, self.signtarget, 'sha256', salt, None, 'SHA256_RSA4096',
                                 name + ".pem", None, 0, 0, None, None, None, None, include_descriptors_from_image, None,
-                                None, None, None, None, output_vbmeta_image, False, False, False, False)
+                                None, None, None, None, output_vbmeta_image, False, False, False, False, issprd=issprd)
             if os.path.exists(pp + ".signed"):
                 os.remove(pp + ".signed")
             os.rename(pp + ".new", pp + ".signed")
@@ -683,7 +689,7 @@ class ramdiskmod():
         os.mkdir(KEYPATH)
         if os.path.exists("key"):
             keyname = extract_key(modulus, KEYPATH)
-            if keyname != None:
+            if keyname is not None:
                 self.sign(keyname, mode, self.TARGET + ".signed")
             else:
                 if mode == 1 or forcesign == 1:
@@ -721,7 +727,7 @@ class ramdiskmod():
 
 def main():
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
-                                     description='Makeramdisk ' + version + ' (c) B. Kerler 2019')
+                                     description='Makeramdisk ' + version + ' (c) B. Kerler 2019-2021')
 
     parser.add_argument(
         '-stopboot', '-s',
